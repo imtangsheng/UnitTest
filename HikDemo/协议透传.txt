@@ -1,0 +1,281 @@
+#include <stdio.h>
+#include <iostream>
+#include "Windows.h"
+#include "HCNetSDK.h"
+using namespace std;
+
+/****************************************
+Function:    AnsiToUTF8
+Description: Ansi字符转换成UTF-8字符
+Input:       szAnsiString Ansi字符
+Return:      UTF-8字符
+****************************************/
+char* AnsiToUTF8(const char* szAnsiString)
+{
+#if defined(_WIN32) || defined(_WIN64)
+    if (szAnsiString == NULL || strlen(szAnsiString) == 0)
+    {
+        return NULL;
+    }
+    //AnsiToUnicode
+    //预转换，得到所需空间的大小
+    int wcsLen = ::MultiByteToWideChar(CP_ACP, NULL, szAnsiString, (int)strlen(szAnsiString), NULL, 0);
+
+    //分配空间要给'\0'留个空间，MultiByteToWideChar不会给'\0'空间
+    wchar_t* wszUnicodeString = new wchar_t[(size_t)wcsLen + 1];
+
+    //转换
+    ::MultiByteToWideChar(CP_ACP, NULL, szAnsiString, (int)strlen(szAnsiString), wszUnicodeString, wcsLen);
+
+    //最后加上'\0'
+    wszUnicodeString[wcsLen] = '\0';
+
+    // unicode to UTF8
+    //预转换，得到所需空间的大小，这次用的函数和上面名字相反
+    int UTF8Len = ::WideCharToMultiByte(CP_UTF8, NULL, wszUnicodeString, (int)wcslen(wszUnicodeString), NULL, 0, NULL, NULL);
+
+    //同上，分配空间要给'\0'留个空间
+    //UTF8虽然是Unicode的压缩形式，但也是多字节字符串，所以可以以char的形式保存
+    char* szUTF8 = new char[(size_t)UTF8Len + 1];
+
+    //转换
+    //unicode版对应的strlen是wcslen
+    ::WideCharToMultiByte(CP_UTF8, NULL, wszUnicodeString, (int)wcslen(wszUnicodeString), szUTF8, UTF8Len, NULL, NULL);
+
+    //最后加上'\0'
+    szUTF8[UTF8Len] = '\0';
+
+    delete[] wszUnicodeString;
+    wszUnicodeString = NULL;
+
+    return szUTF8;
+
+#else
+    if (NULL == szAnsiString)
+    {
+        return NULL;
+    }
+    char* outbuf = 0;
+    if (szAnsiString)
+    {
+        iconv_t cd = iconv_open("UTF-8", "EUC-CN");
+        if (cd)
+        {
+            size_t contlen = strlen(szAnsiString);
+            size_t outbuflen = contlen * 3 + 1;
+            outbuf = new char[outbuflen];
+            memset(outbuf, 0, outbuflen);
+
+            char* inptr = const_cast<char*>(szAnsiString);
+            char* outptr = outbuf;
+
+            size_t inlen = contlen;
+            size_t outlen = outbuflen;
+            if (iconv(cd, &inptr, &inlen, &outptr, &outlen) == (size_t)(-1))
+            {
+                outbuf = 0;
+            }
+
+            iconv_close(cd);
+        }
+    }
+    return outbuf;
+#endif
+}
+
+/****************************************
+Function:    UTF8ToAnsi
+Description: UTF-8字符转换成Ansi字符
+Input:       szAnsiString UTF-8字符
+Return:      Ansi字符
+****************************************/
+char* UTF8ToAnsi(const char* szUTF8String)
+{
+#if defined(_WIN32) || defined(_WIN64)
+    WCHAR* strSrc = NULL;
+    char* szRes = NULL;
+
+    int i = MultiByteToWideChar(CP_UTF8, 0, szUTF8String, -1, NULL, 0);
+
+    strSrc = new WCHAR[(size_t)i + 1];
+    MultiByteToWideChar(CP_UTF8, 0, szUTF8String, -1, strSrc, i);
+
+    i = WideCharToMultiByte(CP_ACP, 0, strSrc, -1, NULL, 0, NULL, NULL);
+
+    szRes = new char[(size_t)i + 1];
+    WideCharToMultiByte(CP_ACP, 0, strSrc, -1, szRes, i, NULL, NULL);
+
+    delete[] strSrc;
+    strSrc = NULL;
+
+    return szRes;
+
+#else
+    char* outbuf = 0;
+    if (szUTF8String)
+    {
+        iconv_t cd = iconv_open("EUC-CN", "UTF-8");
+        if (cd)
+        {
+            size_t contlen = strlen(szUTF8String);
+            size_t outbuflen = contlen * 3 + 1;
+            outbuf = new char[outbuflen];
+            memset(outbuf, 0, outbuflen);
+
+            char* inptr = const_cast<char*>(szUTF8String);
+            char* outptr = outbuf;
+
+            size_t inlen = contlen;
+            size_t outlen = outbuflen;
+            if (iconv(cd, &inptr, &inlen, &outptr, &outlen) == (size_t)(-1))
+            {
+                outbuf = 0;
+            }
+
+            iconv_close(cd);
+        }
+    }
+    return outbuf;
+#endif
+}
+
+void main() {
+    //---------------------------------------
+    // 初始化
+    NET_DVR_Init();
+
+    //---------------------------------------
+    // 注册设备
+    LONG lUserID;
+
+    //登录参数，包括设备地址、登录用户、密码等
+    NET_DVR_USER_LOGIN_INFO struLoginInfo = { 0 };
+    struLoginInfo.bUseAsynLogin = 0; //同步登录方式
+    strcpy(struLoginInfo.sDeviceAddress, "192.168.1.99"); //设备IP地址
+    struLoginInfo.wPort = 8000; //设备服务端口
+    strcpy(struLoginInfo.sUserName, "admin"); //设备登录用户名
+    strcpy(struLoginInfo.sPassword, "dacang80"); //设备登录密码
+
+    //设备信息, 输出参数
+    NET_DVR_DEVICEINFO_V40 struDeviceInfoV40 = { 0 };
+
+    lUserID = NET_DVR_Login_V40(&struLoginInfo, &struDeviceInfoV40);
+    if (lUserID < 0)
+    {
+        printf("Login failed, error code: %d\n", NET_DVR_GetLastError());
+        NET_DVR_Cleanup();
+        return;
+    }
+
+    //输出参数
+    NET_DVR_XML_CONFIG_INPUT struInput = { 0 };
+    struInput.dwSize = sizeof(struInput);
+
+    //输出参数
+    NET_DVR_XML_CONFIG_OUTPUT struOutputParam = { 0 };
+    struOutputParam.dwSize = sizeof(struOutputParam);
+
+    //URL
+    char szUrl[512];
+
+    //GET方法测试
+    memset(szUrl, 0, sizeof(szUrl));
+    sprintf(szUrl, "%s", "GET /ISAPI/Intelligent/channels/2/intelliResource\r\n"); //获取所有人脸库的URL
+
+    //不同功能对应不同URL，具体参考相应的协议文档
+    struInput.lpRequestUrl = szUrl;
+    struInput.dwRequestUrlLen = strlen(szUrl);
+
+    //获取时输入为空
+    struInput.lpInBuffer = NULL;
+    struInput.dwInBufferSize = 0;
+
+    //分配输出内存
+    char szGetOutput[8 * 1024] = { 0 };
+    struOutputParam.lpOutBuffer = szGetOutput;
+    struOutputParam.dwOutBufferSize = sizeof(szGetOutput);
+
+    //输出状态
+    char szStatusBuf[1024] = { 0 };
+    struOutputParam.lpStatusBuffer = szStatusBuf;
+    struOutputParam.dwStatusSize = sizeof(szStatusBuf);
+
+    if (!NET_DVR_STDXMLConfig(lUserID, &struInput, &struOutputParam))
+    {
+        printf("NET_DVR_STDXMLConfig failed, error code: %d\n", NET_DVR_GetLastError());
+    }
+    else
+    {
+        printf("NET_DVR_STDXMLConfig successfully!\n");
+        printf("%s\n", UTF8ToAnsi(szGetOutput));
+    }
+
+    //POST方法测试
+    memset(szUrl, 0, sizeof(szUrl));
+    sprintf(szUrl, "%s", "PUT /ISAPI/Intelligent/channels/2/intelliResource\r\n"); //添加人脸库
+
+    struInput.lpRequestUrl = szUrl;
+    struInput.dwRequestUrlLen = strlen(szUrl);
+
+    //输入JSON数据
+    char pBuf[8 * 1024] = { 0 };
+    //输入的不能有空格，不然无法判断是xml格式
+    strcpy(pBuf, AnsiToUTF8("<?xml version = \"1.0\" encoding = \"UTF-8\" ?>\r\n"
+        "<IntelliResource version = \"2.0\" xmlns = \"http://www.std-cgi.com/ver20/XMLSchema\">\r\n"
+        "<BehaviorInfo>\r\n"
+        "<IntelliImage>\r\n"
+        "<isUpload>true</isUpload>\r\n"
+        "<imgQuality>best</imgQuality>\r\n"
+        "<isImgTargetOverlap>true</isImgTargetOverlap>\r\n"
+        "<isImgRuleOverlap>true</isImgRuleOverlap>\r\n"
+        "</IntelliImage>\r\n"
+        "<VideoOverlapInfo>\r\n"
+        "<isOverlapIntelli>true</isOverlapIntelli>\r\n"
+        "</VideoOverlapInfo>\r\n"
+        "<IntelliAnalysisEnable>true</IntelliAnalysisEnable>\r\n"
+        "</BehaviorInfo>\r\n"
+        "<AlgVersionInfo>\r\n"
+        "<AlgItem>\r\n"
+        "<id>1</id>\r\n"
+        "<algName>V1.9.1build20220119</algName>\r\n"
+        "</AlgItem>\r\n"
+        "</AlgVersionInfo>\r\n"
+        "</IntelliResource>"));//中文字符需要使用UTF-8字符集
+
+    //输入参数
+    //char szGetOutput[8 * 1024] = { 0 };
+    struInput.lpInBuffer = pBuf;
+    struInput.dwInBufferSize = sizeof(pBuf);
+
+    //输出结果
+    char szOutput[8 * 1024] = { 0 };
+    struOutputParam.lpOutBuffer = szOutput;
+    struOutputParam.dwOutBufferSize = sizeof(szOutput);
+
+    //输出状态
+    char szStatusBuff[1024] = { 0 };
+    struOutputParam.lpStatusBuffer = szStatusBuff;
+    struOutputParam.dwStatusSize = sizeof(szStatusBuff);
+
+    if (!NET_DVR_STDXMLConfig(lUserID, &struInput, &struOutputParam))
+    {
+        printf("NET_DVR_STDXMLConfig failed, error code: %d\n", NET_DVR_GetLastError());
+    }
+    else
+    {
+        printf("NET_DVR_STDXMLConfig successfully!\n");
+        printf("lpOutBuffer: %s\n", UTF8ToAnsi(szOutput));
+        printf("lpStatusBuffer: %s\n", szStatusBuff);
+    }
+
+    //---------------------------------------
+    //退出程序
+
+    //注销用户
+    NET_DVR_Logout(lUserID);
+
+    //释放SDK资源
+    NET_DVR_Cleanup();
+    return;
+}
+
